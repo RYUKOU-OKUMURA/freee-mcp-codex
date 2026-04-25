@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "freee-mcp": {
+      "command": "bun",
+      "args": ["run", "src/index.ts"]
+    },
+    "freee-sign-mcp": {
+      "command": "bun",
+      "args": ["run", "src/sign/index.ts"]
+    }
+  }
+}
