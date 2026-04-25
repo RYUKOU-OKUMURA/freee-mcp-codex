@@ -1,262 +1,161 @@
-# freee-mcp
+# freee-mcp-codex
 
-freee会計、人事労務、請求書、工数管理、販売、サイン（電子契約）を AI Agent から操作できるようにする freee 公式の MCP サーバーと Agent Skills です。
+freee-mcp を Codex Desktop から安全に導入、接続、検証、運用するための非公式スターターキットです。
 
-- MCP サーバー: freee API の呼び出し・認証・リクエスト検証を担当
-- Agent Skills: API リファレンスと操作レシピを AI Agent のコンテキストに注入し、正確な API 利用をガイド
+このリポジトリは freee-mcp をベースにしていますが、フリー株式会社の公式提供物ではありません。同社による承認、保証、サポートを意味するものでもありません。
+
+まずは読み取り専用で始め、登録、更新、削除は必ず人間の確認を挟む前提で使います。税務判断、会計判断、顧問先への説明の最終責任は人間にあります。
 
 [![npm version](https://badge.fury.io/js/freee-mcp.svg)](https://www.npmjs.com/package/freee-mcp)
 
-## 特徴
+## このリポジトリの目的
 
-- 複数 API 対応: 会計・人事労務・請求書・工数管理・販売の5つの freee API をサポート
-- サイン（電子契約）対応: freee サインの文書管理 API を専用コマンド（`freee-sign-mcp`）でサポート
-- OAuth 2.0 + PKCE: セキュアな認証フロー、トークン自動更新
-- 複数事業所対応: 事業所の動的切り替えが可能
+- Codex Desktop から freee-mcp を使うための導入手順をまとめる
+- 税理士事務所や freee 利用者が読み取り専用から安全に試せるようにする
+- MCP 設定例、AGENTS.md、業務プロンプト、安全運用ルールを用意する
+- 公式提供物と誤認されない形で、freee-mcp の Codex 利用を補助する
 
-## Agent Skills と MCP の通信の流れ
+## 最初に読むもの
 
-Agent Skills（API リファレンス・操作レシピ）と MCP サーバー（API 呼び出し）を組み合わせて利用します。
+- [docs/codex-setup.md](./docs/codex-setup.md)
+  - セットアップ手順です。
+- [docs/codex-mcp-config-example.md](./docs/codex-mcp-config-example.md)
+  - Codex 向け MCP 設定例です。
+- [docs/safety-policy-for-tax-accountants.md](./docs/safety-policy-for-tax-accountants.md)
+  - 税理士事務所向けの安全運用方針です。
+- [prompts/00-read-only-check.md](./prompts/00-read-only-check.md)
+  - 初回の読み取り専用チェック用プロンプトです。
 
-```mermaid
-sequenceDiagram
-    participant User as ユーザー
-    participant Agent as AI Agent
-    participant Skill as Agent Skills<br/>(API リファレンス・操作レシピ)
-    participant MCP as MCP サーバー
-    participant API as freee API
+## Codex で最初にできること
 
-    User->>Agent: リクエスト<br/>「取引一覧を取得して」
+最初は次のような読み取り系だけを試してください。
 
-    Note over Agent,Skill: 1. Agent Skills からリファレンスを取得
-    Agent->>Skill: freee-api-skill 呼び出し
-    Skill-->>Agent: API リファレンス注入<br/>(エンドポイント、パラメータ仕様)
+- 事業所一覧の取得
+- 現在の事業所確認
+- ユーザー情報確認
+- 取引一覧取得
+- 取引先一覧取得
+- 勘定科目一覧取得
+- 請求書一覧取得
 
-    Note over Agent,MCP: 2. MCP Tool で API を実行
-    Agent->>MCP: freee_api_get 呼び出し<br/>path: /api/1/deals
-    MCP->>MCP: OpenAPI スキーマで検証
-    MCP->>MCP: 認証トークン付与
+書き込みが必要な場合も、まず下書き案を表で確認します。`POST`、`PUT`、`PATCH`、`DELETE` は、人間が明示的に許可するまで実行しない運用にしてください。
 
-    Note over MCP,API: 3. freee API への通信
-    MCP->>API: GET /api/1/deals<br/>Authorization: Bearer xxx
-    API-->>MCP: JSON レスポンス
+## セットアップ概要
 
-    MCP-->>Agent: 取引データ
-    Agent-->>User: 結果を整形して表示
+1. 依存関係を入れる
+
+```bash
+bun install
 ```
 
-この仕組みにより：
-- Agent Skills: 必要な API リファレンスや操作レシピを段階的にコンテキストに注入（コンテキスト効率化）
-- MCP: 認証・リクエスト検証・API 呼び出しを担当
-
-## クイックスタート
-
-### 方法 1: Remote MCP で接続する（推奨）
-
-freee が提供する Remote MCP サーバーに接続する方法です。ローカルでのセットアップが不要で、すぐに利用を開始できます。
-
-Claude 及び Claude Desktop では「カスタマイズ」より「カスタムコネクタを追加」を開き、以下を設定してください。
-
-- 名前: `freee`
-- URL: `https://mcp.freee.co.jp/mcp`
-
-> ⚠️ freee 公式以外の URL を入力しないようにご注意ください。
-
-<img src="docs/images/claude-desktop-custom-connector.png" width="600" alt="Claude Desktop でカスタムコネクタを追加">
-
-その他の AI ツールでは、それぞれの案内に従って Remote MCP サーバーを追加してください。
-
-### 方法 2: ローカルで MCP サーバーを起動する
-
-freee アプリケーションを自分で登録し、ローカルで MCP サーバーを起動する方法です。
-
-#### 2-1. freee アプリケーションの登録
-
-[freee アプリストア](https://app.secure.freee.co.jp/developers) で新しいアプリを作成:
-
-- コールバックURL: `http://127.0.0.1:54321/callback`
-- Client ID と Client Secret を取得
-- 必要な権限にチェック
-
-#### 2-2. セットアップ
+2. freee-mcp の初期設定を行う
 
 ```bash
 npx freee-mcp configure
 ```
 
-対話式ウィザードが認証情報の設定、OAuth認証、事業所選択を行います。
+3. Codex Desktop の MCP 設定に freee-mcp を追加する
 
-#### 2-3. Claude Desktop に追加
+設定例は [docs/codex-mcp-config-example.md](./docs/codex-mcp-config-example.md) を参照してください。
 
-`configure` が出力する設定を Claude Desktop の設定ファイルに追加:
+4. 読み取り系の接続確認から始める
 
-```json
-{
-  "mcpServers": {
-    "freee": {
-      "command": "npx",
-      "args": ["freee-mcp"]
-    }
-  }
-}
-```
+- `freee_auth_status`
+- `freee_current_user`
+- `freee_list_companies`
+- `freee_get_current_company`
 
-Windows Store (Microsoft Store) 版の Claude Desktop をご利用の場合、設定ファイルのパスが異なります。`freee-mcp configure` は自動的に適切なパスを検出します。
-## Agent Skills をインストールする
+## 業務プロンプト
 
-Claude 及び Claude Desktop では「カスタマイズ」より「スキル」を開き、[Releases](https://github.com/freee/freee-mcp/releases) ページから最新の `freee-api-skill.zip` をダウンロードしてアップロードしてください。
+税理士事務所や事務所スタッフが Codex に貼り付けて使えるプロンプトを用意しています。
 
-<img src="docs/images/claude-desktop-skill-upload.png" width="600" alt="Claude Desktop でスキルをアップロード">
+- [prompts/00-read-only-check.md](./prompts/00-read-only-check.md)
+- [prompts/01-monthly-review.md](./prompts/01-monthly-review.md)
+- [prompts/02-invoice-draft.md](./prompts/02-invoice-draft.md)
+- [prompts/03-expense-review.md](./prompts/03-expense-review.md)
+- [prompts/04-duplicate-check.md](./prompts/04-duplicate-check.md)
+- [prompts/05-client-report-draft.md](./prompts/05-client-report-draft.md)
 
-Claude Code 等のコーディングエージェント（Cursor, OpenCode など）では、[skills](https://www.npmjs.com/package/skills) でインストールできます。
+共通ルールは、読み取り優先、表で整理、要確認を分離、書き込み前の人間確認です。
 
-```bash
-npx skills add freee/freee-mcp
-```
+## freee-mcp の主な機能
 
-グローバルインストール(`-g`)や特定スキルのみのインストール(`-s`)も可能です。
+このスターターキットは、元の freee-mcp が提供する MCP サーバーと Agent Skills を利用します。
 
-GitHub CLI（v2.90.0 以降）の [`gh skill`](https://cli.github.com/manual/gh_skill) コマンドからもインストールできます。
+- 会計 API
+- 人事労務 API
+- 請求書 API
+- 工数管理 API
+- 販売 API
+- freee サイン API
 
-```bash
-gh skill install freee/freee-mcp freee-api-skill
-```
-
-`--agent`（例: `claude-code`, `copilot`, `cursor`, `codex`, `gemini-cli`）や `--scope user`／`--scope project` の指定、`--pin` による特定タグ/コミットへの固定にも対応しています。
-
-[Agent Package Manager (APM)](https://github.com/microsoft/apm) を利用している場合は、以下のコマンドでもインストールできます。GitHub Copilot / Claude Code / Cursor / OpenCode / Codex など、プロジェクトに存在する対象ディレクトリに自動でデプロイされます。
-
-```bash
-apm install freee/freee-mcp/skills/freee-api-skill
-```
-
-## Claude Code Plugin として使う
-
-Claude Code でプラグインとしてインストールすると、MCP サーバーと Agent Skills（API リファレンス・操作レシピ）がまとめて利用できます。
-
-以下の2つのコマンドを順に実行してください:
-
-```bash
-claude plugin marketplace add freee/freee-mcp
-claude plugin install freee-mcp@freee-mcp-marketplace
-```
-
-Claude Code のプロンプト内からも実行できます:
-
-```
-/plugin marketplace add freee/freee-mcp
-/plugin install freee-mcp@freee-mcp-marketplace
-```
-
-## Agent Skills の内容
-
-| API      | 内容                                             | ファイル数 |
-| -------- | ------------------------------------------------ | ---------- |
-| 会計     | 取引、勘定科目、取引先、請求書、経費申請など     | 32         |
-| 人事労務 | 従業員、勤怠、給与明細、年末調整など             | 28         |
-| 請求書   | 請求書、見積書、納品書                           | 4          |
-| 工数管理 | プロジェクト、チーム、パートナー、工数、ユーザーなど | 7          |
-| 販売     | 案件、受注、マスタ                               | 5          |
-| サイン   | 文書、フォルダ、テンプレート、マイ印鑑など       | 8          |
-
-AI Agent との会話中に freee API の操作を依頼すると、これらのリファレンスやレシピを参照して正確に実行します。
-
-## データ作成のベストプラクティス
-
-請求書や経費精算など、同じ形式のデータを繰り返し作成する場合は、以前に作成したデータを参照することで効率的に作業できます：
-
-- 請求書作成: 過去の請求書を取得して、取引先・品目・税区分などを参考にする
-- 経費精算: 過去の申請を参照して、勘定科目や部門の指定を正確に行う
-- 取引登録: 類似の取引を参考にして、入力ミスを防ぐ
-
-```
-例: 「先月の○○社への請求書を参考に、今月分を作成して」
-```
-
-## 利用可能なツール
-
-### 管理ツール
-
-| ツール                     | 説明               | 備考             |
-| -------------------------- | ------------------ | ---------------- |
-| `freee_authenticate`       | OAuth 認証を実行   | stdio のみ       |
-| `freee_auth_status`        | 認証状態を確認     |                  |
-| `freee_clear_auth`         | 認証情報をクリア   |                  |
-| `freee_set_current_company`| 事業所を切り替え   |                  |
-| `freee_get_current_company`| 現在の事業所を表示 |                  |
-| `freee_list_companies`     | 事業所一覧を取得   |                  |
-| `freee_current_user`       | 現在のユーザー情報 |                  |
-| `freee_server_info`        | サーバー情報取得   |                  |
-| `freee_file_upload`        | ファイルアップロード | stdio のみ     |
-
-### API ツール
-
-HTTPメソッドごとのシンプルなツール構成:
-
-| ツール                 | 説明               | 例                 |
-| ---------------------- | ------------------ | ------------------ |
-| `freee_api_get`        | データ取得         | `/api/1/deals`     |
-| `freee_api_post`       | 新規作成           | `/api/1/deals`     |
-| `freee_api_put`        | 更新               | `/api/1/deals/123` |
-| `freee_api_delete`     | 削除               | `/api/1/deals/123` |
-| `freee_api_patch`      | 部分更新           | `/api/1/deals/123` |
-| `freee_api_list_paths` | エンドポイント一覧 | -                  |
-
-パスは OpenAPI スキーマに対して自動検証されます。
-
-## freee サイン（電子契約）
-
-freee サインの API は専用コマンド `freee-sign-mcp` で利用できます。
-
-> Remote MCP での提供は現在準備中です。ローカルでの MCP サーバー起動のみサポートしています。
-
-### セットアップ
-
-```bash
-npx --package=freee-mcp -- freee-sign-mcp configure
-```
-
-対話式ウィザードが認証情報の設定と OAuth 認証を行います。
-
-### MCP 設定
-
-```json
-{
-  "mcpServers": {
-    "freee-sign-mcp": {
-      "command": "npx",
-      "args": ["--package=freee-mcp", "--", "freee-sign-mcp"]
-    }
-  }
-}
-```
-
-### サイン用ツール
+代表的な MCP ツールは次の通りです。
 
 | ツール | 説明 |
 | --- | --- |
-| `sign_authenticate` | OAuth 認証を実行 |
-| `sign_auth_status` | 認証状態を確認 |
-| `sign_clear_auth` | 認証情報をクリア |
-| `sign_api_get` | データ取得 |
-| `sign_api_post` | 新規作成 |
-| `sign_api_put` | 更新 |
-| `sign_api_patch` | 部分更新 |
-| `sign_api_delete` | 削除 |
+| `freee_auth_status` | 認証状態の確認 |
+| `freee_current_user` | 現在のユーザー情報 |
+| `freee_list_companies` | 事業所一覧 |
+| `freee_get_current_company` | 現在の事業所 |
+| `freee_api_get` | データ取得 |
+| `freee_api_post` | 新規作成 |
+| `freee_api_put` | 更新 |
+| `freee_api_patch` | 部分更新 |
+| `freee_api_delete` | 削除 |
+| `freee_api_list_paths` | エンドポイント一覧 |
 
-### company_id の取り扱い
+削除系 API は原則使わないでください。
 
-リクエスト（パラメータまたはボディ）に `company_id` を含める場合、現在の事業所と一致している必要があります。不一致の場合はエラーになります。
+## Claude Code との違い
 
-- 事業所の確認: `freee_get_current_company`
-- 事業所の切り替え: `freee_set_current_company`
-- company_id を含まない API（例: `/api/1/companies`）はそのまま実行可能
+元の freee-mcp には Claude Desktop や Claude Code Plugin 向けの導線があります。このリポジトリでは、Codex Desktop で使うために、MCP 設定、Skills、AGENTS.md、プロンプト集、安全運用ドキュメントを組み合わせる形に整理しています。
 
-## コントリビューション
+詳しくは [docs/claude-to-codex-notes.md](./docs/claude-to-codex-notes.md) を参照してください。
 
-詳しくは [CONTRIBUTING.md](./CONTRIBUTING.md) をご覧ください。
+## 検証
 
-### Contributors
+検証手順は [docs/verification-plan.md](./docs/verification-plan.md) にまとめています。
+
+主な確認コマンドは次の通りです。
+
+```bash
+bun run typecheck
+bun run lint
+bun run test:run
+bun run build
+```
+
+実 API 接続や書き込み系 API の確認は、テストデータまたは人間の明示確認後に限定してください。
+
+## 開発者向け
+
+```bash
+git clone https://github.com/RYUKOU-OKUMURA/freee-mcp-codex.git
+cd freee-mcp-codex
+bun install
+
+bun run dev
+bun run build
+bun run typecheck
+bun run lint
+bun run test:run
+```
+
+内部構造や既存の開発ガイドは [CLAUDE.md](./CLAUDE.md) に残っています。ただし Codex で freee データを扱うときの行動ルールは [AGENTS.md](./AGENTS.md) を優先してください。
+
+## ライセンスと商標
+
+元の freee-mcp は Apache License 2.0 で提供されています。詳細は [LICENSE](./LICENSE) を確認してください。
+
+元になっている公式リポジトリはこちらです。
+
+- [freee/freee-mcp](https://github.com/freee/freee-mcp)
+
+freee および関連するサービス名は、フリー株式会社の商標または登録商標です。Codex、OpenAI、Claude などの名称も、それぞれの権利者に帰属します。
+
+## Contributors
+
+元リポジトリ由来の Contributors です。
 
 <!-- CONTRIBUTORS-START -->
 <a href="https://github.com/him0"><img src="https://github.com/him0.png" width="40" height="40" alt="@him0"></a>
@@ -287,43 +186,9 @@ npx --package=freee-mcp -- freee-sign-mcp configure
 <a href="https://github.com/yuyohi"><img src="https://github.com/yuyohi.png" width="40" height="40" alt="@yuyohi"></a>
 <!-- CONTRIBUTORS-END -->
 
-## 開発者向け
-
-```bash
-git clone https://github.com/freee/freee-mcp.git
-cd freee-mcp
-bun install
-
-bun run dev           # 開発サーバー（ウォッチモード）
-bun run build         # ビルド
-bun run typecheck    # 型チェック
-bun run lint          # リント
-bun run test:run      # テスト
-
-# API リファレンスの再生成
-bun run generate:references
-```
-
-### 技術スタック
-
-TypeScript / Model Context Protocol SDK / OAuth 2.0 + PKCE / Zod / Bun
-
-### アーキテクチャ詳細
-
-プロジェクトのアーキテクチャ、内部構造、開発ガイドラインについては [CLAUDE.md](./CLAUDE.md) を参照してください。
-
-## License / ライセンス
-
-[Apache-2.0](./LICENSE)
-
-## コミュニティ
-
-質問や情報交換は Discord サーバーで行っています。お気軽にご参加ください。
-
-- [Discord サーバー](https://discord.gg/9ddTPGyxPw)
-
 ## 関連リンク
 
-- [紹介記事: Public API を MCP化するとき Agent Skill 併用が良さそう with freee-mcp](https://zenn.dev/him0/articles/766798ca1315e0)
 - [freee API ドキュメント](https://developer.freee.co.jp/docs)
 - [Model Context Protocol](https://modelcontextprotocol.io)
+- [freee/freee-mcp](https://github.com/freee/freee-mcp)
+- [freee-mcp npm package](https://www.npmjs.com/package/freee-mcp)
